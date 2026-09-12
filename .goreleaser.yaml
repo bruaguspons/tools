@@ -1,0 +1,41 @@
+version: 2
+
+project_name: tools
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: tools
+    main: .
+    dir: .
+    binary: tools
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: tools
+    ids:
+      - tools
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: bruaguspons
+    name: tools
+
+changelog:
+  disable: true
