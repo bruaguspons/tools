@@ -1,0 +1,11 @@
+{
+    "editor.tabSize": 4,
+    "editor.formatOnSave": true,
+    "files.exclude": {
+        "**/.git": true,
+        "**/target": true
+    },
+    "java.jdt.ls.java.home": "JAVA_HOME_PLACEHOLDER",
+    "java.eclipse.downloadSources": true,
+    "java.configuration.updateBuildConfiguration": "automatic"
+}

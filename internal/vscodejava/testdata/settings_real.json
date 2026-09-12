@@ -1,0 +1,10 @@
+{
+    "editor.tabSize": 4,
+    "editor.formatOnSave": true,
+    "files.exclude": {
+        "**/.git": true,
+        "**/target": true
+    },
+    "java.jdt.ls.java.home": "/usr/lib/jvm/old-jdk-11",
+    "java.eclipse.downloadSources": true
+}
