@@ -67,6 +67,69 @@ func decodeOrderedObject(original, trimmed []byte) ([]string, map[string]json.Ra
 	return order, values, nil
 }
 
+// decodeOrderedArray strictly decodes a JSON array, returning its
+// elements as raw (unparsed) values in their original order. It rejects
+// anything that isn't a top-level array, including any trailing content
+// after the closing bracket.
+func decodeOrderedArray(raw []byte) ([]json.RawMessage, error) {
+	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(raw)))
+
+	tok, err := dec.Token()
+	if err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+	delim, ok := tok.(json.Delim)
+	if !ok || delim != '[' {
+		return nil, fmt.Errorf("value must be an array, found %v", tok)
+	}
+
+	elements := make([]json.RawMessage, 0)
+	for dec.More() {
+		var elem json.RawMessage
+		if err := dec.Decode(&elem); err != nil {
+			return nil, fmt.Errorf("invalid JSON: %w", err)
+		}
+		elements = append(elements, elem)
+	}
+
+	if _, err := dec.Token(); err != nil { // consume closing ']'
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+	if dec.More() {
+		return nil, errors.New("unexpected content after the top-level JSON array")
+	}
+
+	return elements, nil
+}
+
+// encodeOrderedObject is the inverse of decodeOrderedObject: it renders
+// values in the given key order as a single compact JSON object. Nested
+// values are emitted as-is (whatever bytes are already stored for that
+// key) — render() re-indents the whole file afterward, so compact output
+// here is sufficient.
+func encodeOrderedObject(order []string, values map[string]json.RawMessage) (json.RawMessage, error) {
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, key := range order {
+		raw, ok := values[key]
+		if !ok {
+			return nil, fmt.Errorf("internal error: key %q listed in order but missing from values", key)
+		}
+		keyJSON, err := json.Marshal(key)
+		if err != nil {
+			return nil, fmt.Errorf("marshal key %q: %w", key, err)
+		}
+		buf.Write(keyJSON)
+		buf.WriteByte(':')
+		buf.Write(raw)
+		if i < len(order)-1 {
+			buf.WriteByte(',')
+		}
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
 // describeSyntaxError wraps a JSON decoding error with a line:column
 // location and, when detectable, an explicit hint that the file looks
 // like JSONC (comments or a trailing comma) rather than strict JSON.

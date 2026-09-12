@@ -10,9 +10,18 @@ import (
 
 var update = flag.Bool("update", false, "update golden files")
 
-// newFakeJDK creates a directory with a bin/java file inside it and
+// newFakeJDK creates a directory with a bin/java file and a release file
+// (JAVA_VERSION="21.0.1", i.e. runtime name JavaSE-21) inside it, and
 // returns the directory path, suitable for use as JAVA_HOME.
 func newFakeJDK(t *testing.T) string {
+	t.Helper()
+	return newFakeJDKWithVersion(t, `JAVA_VERSION="21.0.1"`)
+}
+
+// newFakeJDKWithVersion creates a fake JDK like newFakeJDK, but with the
+// given release file content instead of the default JAVA_VERSION line.
+// An empty releaseLine omits the release file entirely.
+func newFakeJDKWithVersion(t *testing.T, releaseLine string) string {
 	t.Helper()
 	dir := t.TempDir()
 	binDir := filepath.Join(dir, "bin")
@@ -22,6 +31,13 @@ func newFakeJDK(t *testing.T) string {
 	javaPath := filepath.Join(binDir, "java")
 	if err := os.WriteFile(javaPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("WriteFile(%s) failed: %v", javaPath, err)
+	}
+	if releaseLine != "" {
+		releasePath := filepath.Join(dir, "release")
+		content := releaseLine + "\n"
+		if err := os.WriteFile(releasePath, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) failed: %v", releasePath, err)
+		}
 	}
 	return dir
 }
@@ -51,7 +67,14 @@ func TestConfigure(t *testing.T) {
 			existing: nil,
 			want: `{
     "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
-    "java.configuration.updateBuildConfiguration": "automatic"
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-21",
+            "path": "` + "JAVA_HOME_PLACEHOLDER" + `",
+            "default": true
+        }
+    ]
 }
 `,
 		},
@@ -70,7 +93,14 @@ func TestConfigure(t *testing.T) {
         "**/.git": true
     },
     "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
-    "java.configuration.updateBuildConfiguration": "automatic"
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-21",
+            "path": "` + "JAVA_HOME_PLACEHOLDER" + `",
+            "default": true
+        }
+    ]
 }
 `,
 		},
@@ -84,7 +114,14 @@ func TestConfigure(t *testing.T) {
 			want: `{
     "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
     "editor.tabSize": 4,
-    "java.configuration.updateBuildConfiguration": "automatic"
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-21",
+            "path": "` + "JAVA_HOME_PLACEHOLDER" + `",
+            "default": true
+        }
+    ]
 }
 `,
 		},
@@ -93,7 +130,14 @@ func TestConfigure(t *testing.T) {
 			existing: strPtr(""),
 			want: `{
     "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
-    "java.configuration.updateBuildConfiguration": "automatic"
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-21",
+            "path": "` + "JAVA_HOME_PLACEHOLDER" + `",
+            "default": true
+        }
+    ]
 }
 `,
 		},
@@ -102,7 +146,14 @@ func TestConfigure(t *testing.T) {
 			existing: strPtr("   \n\t\n"),
 			want: `{
     "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
-    "java.configuration.updateBuildConfiguration": "automatic"
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-21",
+            "path": "` + "JAVA_HOME_PLACEHOLDER" + `",
+            "default": true
+        }
+    ]
 }
 `,
 		},
@@ -151,7 +202,14 @@ func TestConfigure(t *testing.T) {
 			want: `{
   "editor.tabSize": 2,
   "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
-  "java.configuration.updateBuildConfiguration": "automatic"
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-21",
+      "path": "` + "JAVA_HOME_PLACEHOLDER" + `",
+      "default": true
+    }
+  ]
 }
 `,
 		},
@@ -284,6 +342,187 @@ func TestConfigureJavaHomeMissingBinJava(t *testing.T) {
 	_, err := Configure(dir)
 	if err == nil {
 		t.Fatal("Configure() error = nil, want error about missing bin/java")
+	}
+}
+
+func TestConfigureLegacyJavaVersion(t *testing.T) {
+	dir := t.TempDir()
+	javaHome := newFakeJDKWithVersion(t, `JAVA_VERSION="1.8.0_292"`)
+	t.Setenv("JAVA_HOME", javaHome)
+
+	result, err := Configure(dir)
+	if err != nil {
+		t.Fatalf("Configure() failed: %v", err)
+	}
+
+	got, readErr := os.ReadFile(result.Path)
+	if readErr != nil {
+		t.Fatalf("ReadFile(%s) failed: %v", result.Path, readErr)
+	}
+	if !bytes.Contains(got, []byte(`"name": "JavaSE-1.8"`)) {
+		t.Errorf("settings.json = %s, want it to contain JavaSE-1.8 runtime name", got)
+	}
+}
+
+func TestConfigureNoReleaseFile(t *testing.T) {
+	dir := t.TempDir()
+	javaHome := newFakeJDKWithVersion(t, "")
+	t.Setenv("JAVA_HOME", javaHome)
+
+	existing := "{\n    \"editor.tabSize\": 2\n}\n"
+	writeSettings(t, dir, existing)
+
+	_, err := Configure(dir)
+	if err == nil {
+		t.Fatal("Configure() error = nil, want error mentioning release")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("release")) {
+		t.Errorf("Configure() error = %q, want it to mention release", err.Error())
+	}
+
+	got, readErr := os.ReadFile(filepath.Join(dir, ".vscode", "settings.json"))
+	if readErr != nil {
+		t.Fatalf("ReadFile after failed Configure: %v", readErr)
+	}
+	if string(got) != existing {
+		t.Errorf("settings.json was modified despite missing release file: got %q, want unchanged %q", got, existing)
+	}
+}
+
+func TestConfigureUnparseableJavaVersion(t *testing.T) {
+	tests := []struct {
+		name        string
+		releaseLine string
+	}{
+		{name: "no JAVA_VERSION line", releaseLine: `OS_NAME="Linux"`},
+		{name: "empty JAVA_VERSION", releaseLine: `JAVA_VERSION=""`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			javaHome := newFakeJDKWithVersion(t, tt.releaseLine)
+			t.Setenv("JAVA_HOME", javaHome)
+
+			existing := "{\n    \"editor.tabSize\": 2\n}\n"
+			writeSettings(t, dir, existing)
+
+			_, err := Configure(dir)
+			if err == nil {
+				t.Fatal("Configure() error = nil, want error about JAVA_VERSION")
+			}
+
+			got, readErr := os.ReadFile(filepath.Join(dir, ".vscode", "settings.json"))
+			if readErr != nil {
+				t.Fatalf("ReadFile after failed Configure: %v", readErr)
+			}
+			if string(got) != existing {
+				t.Errorf("settings.json was modified despite unparseable JAVA_VERSION: got %q, want unchanged %q", got, existing)
+			}
+		})
+	}
+}
+
+func TestConfigureRuntimesMerge(t *testing.T) {
+	tests := []struct {
+		name            string
+		existing        string
+		wantContains    []string
+		wantNotContains []string
+		wantErrContains string
+	}{
+		{
+			name: "updates matching entry in place, preserving extra fields and order",
+			existing: `{
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-21",
+            "sources": "/some/src.zip",
+            "default": false
+        }
+    ]
+}
+`,
+			wantContains: []string{
+				`"name": "JavaSE-21",
+            "sources": "/some/src.zip",
+            "default": true,
+            "path": "` + "JAVA_HOME_PLACEHOLDER" + `"`,
+			},
+		},
+		{
+			name: "clears default on other entries and appends ours",
+			existing: `{
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-8",
+            "path": "/old/jdk8",
+            "default": true
+        }
+    ]
+}
+`,
+			wantContains: []string{
+				`"name": "JavaSE-8",
+            "path": "/old/jdk8",
+            "default": false`,
+				`"name": "JavaSE-21",
+            "path": "` + "JAVA_HOME_PLACEHOLDER" + `",
+            "default": true`,
+			},
+		},
+		{
+			name: "non-array runtimes value fails loudly",
+			existing: `{
+    "java.configuration.runtimes": "not an array"
+}
+`,
+			wantErrContains: "array",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			javaHome := newFakeJDK(t)
+			t.Setenv("JAVA_HOME", javaHome)
+
+			writeSettings(t, dir, tt.existing)
+
+			result, err := Configure(dir)
+
+			if tt.wantErrContains != "" {
+				if err == nil {
+					t.Fatalf("Configure() error = nil, want error containing %q", tt.wantErrContains)
+				}
+				if !bytes.Contains([]byte(err.Error()), []byte(tt.wantErrContains)) {
+					t.Errorf("Configure() error = %q, want substring %q", err.Error(), tt.wantErrContains)
+				}
+				got, readErr := os.ReadFile(filepath.Join(dir, ".vscode", "settings.json"))
+				if readErr != nil {
+					t.Fatalf("ReadFile after failed Configure: %v", readErr)
+				}
+				if string(got) != tt.existing {
+					t.Errorf("settings.json was modified despite merge failure: got %q, want unchanged %q", got, tt.existing)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Configure() unexpected error: %v", err)
+			}
+
+			got, readErr := os.ReadFile(result.Path)
+			if readErr != nil {
+				t.Fatalf("ReadFile(%s) failed: %v", result.Path, readErr)
+			}
+			for _, want := range tt.wantContains {
+				wantResolved := replacePlaceholder(want, javaHome)
+				if !bytes.Contains(got, []byte(wantResolved)) {
+					t.Errorf("settings.json =\n%s\nwant it to contain:\n%s", got, wantResolved)
+				}
+			}
+		})
 	}
 }
 

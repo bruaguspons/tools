@@ -7,5 +7,12 @@
     },
     "java.jdt.ls.java.home": "JAVA_HOME_PLACEHOLDER",
     "java.eclipse.downloadSources": true,
-    "java.configuration.updateBuildConfiguration": "automatic"
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-21",
+            "path": "JAVA_HOME_PLACEHOLDER",
+            "default": true
+        }
+    ]
 }
