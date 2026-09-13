@@ -1,7 +1,7 @@
 // Package vscodejava configures the VS Code Java extension's run/debug
 // settings for the current project by merging a small, fixed set of owned
-// keys into ./.vscode/settings.json, including disabling on-type (auto
-// indent) formatting.
+// keys into ./.vscode/settings.json, including disabling format-on-save
+// for Java.
 package vscodejava
 
 import (
@@ -24,19 +24,22 @@ type Result struct {
 	Changed bool
 }
 
-// Owned keys: the tool is authoritative for three scalar settings
-// (keyJavaHome, keyUpdateBuildConfig, keyFormatOnType), which are
-// overwritten outright, plus keyRuntimes, which is merged instead — only
-// the array element matching the detected JDK's name is updated (or a new
-// one appended), and any other element's "default" is cleared so at most
-// one runtime stays default, per the extension's schema. Every other key
-// in settings.json is preserved untouched.
+// Owned keys: the tool is authoritative for two scalar settings
+// (keyJavaHome, keyUpdateBuildConfig), which are overwritten outright,
+// plus two keys that are merged instead: keyRuntimes (only the array
+// element matching the detected JDK's name is updated, or a new one
+// appended, and any other element's "default" is cleared so at most one
+// runtime stays default, per the extension's schema) and keyJavaOverride
+// (only its editorFormatOnSave field is set; any other field in the
+// "[java]" language-override object is preserved). Every other key in
+// settings.json is preserved untouched.
 const (
 	keyJavaHome             = "java.jdt.ls.java.home"
 	keyUpdateBuildConfig    = "java.configuration.updateBuildConfiguration"
 	valueUpdateBuildConfig  = "automatic"
-	keyFormatOnType         = "java.format.onType.enabled"
 	keyRuntimes             = "java.configuration.runtimes"
+	keyJavaOverride         = "[java]"
+	editorFormatOnSave      = "editor.formatOnSave"
 	defaultIndent           = "    " // 4 spaces, VS Code's own default
 	settingsRelPath         = ".vscode/settings.json"
 	settingsDirPermissions  = 0o755
@@ -79,6 +82,11 @@ func Configure(dir string) (Result, error) {
 	order, values = setOwnedKeys(order, values, javaHome)
 
 	order, values, err = setRuntimesKey(order, values, runtime, javaHome)
+	if err != nil {
+		return Result{}, fmt.Errorf("parse %s: %w", path, err)
+	}
+
+	order, values, err = setJavaOverrideKey(order, values)
 	if err != nil {
 		return Result{}, fmt.Errorf("parse %s: %w", path, err)
 	}
@@ -158,9 +166,9 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	return nil
 }
 
-// setOwnedKeys sets (or overwrites in place) the tool's three scalar
-// owned keys. A key that already exists keeps its position in order; a
-// new key is appended at the end.
+// setOwnedKeys sets (or overwrites in place) the tool's two scalar owned
+// keys. A key that already exists keeps its position in order; a new key
+// is appended at the end.
 func setOwnedKeys(order []string, values map[string]json.RawMessage, javaHome string) ([]string, map[string]json.RawMessage) {
 	setKey := func(key string, value any) {
 		raw, _ := json.Marshal(value)
@@ -172,7 +180,6 @@ func setOwnedKeys(order []string, values map[string]json.RawMessage, javaHome st
 
 	setKey(keyJavaHome, javaHome)
 	setKey(keyUpdateBuildConfig, valueUpdateBuildConfig)
-	setKey(keyFormatOnType, false)
 
 	return order, values
 }
@@ -351,4 +358,37 @@ func setField(order *[]string, fields map[string]json.RawMessage, key string, va
 		*order = append(*order, key)
 	}
 	fields[key] = value
+}
+
+// setJavaOverrideKey merges editorFormatOnSave: false into the "[java]"
+// language-override object, creating that object if absent. Any other
+// field already present under "[java]" (and its position) is preserved,
+// mirroring setRuntimesKey/setOwnedKeys's in-place-update behavior.
+func setJavaOverrideKey(order []string, values map[string]json.RawMessage) ([]string, map[string]json.RawMessage, error) {
+	raw, exists := values[keyJavaOverride]
+
+	var fieldOrder []string
+	fields := make(map[string]json.RawMessage)
+	if exists {
+		var err error
+		fieldOrder, fields, err = decodeOrderedObject(raw, bytes.TrimSpace(raw))
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", keyJavaOverride, err)
+		}
+	}
+
+	falseRaw, _ := json.Marshal(false)
+	setField(&fieldOrder, fields, editorFormatOnSave, falseRaw)
+
+	encoded, err := encodeOrderedObject(fieldOrder, fields)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal %s: %w", keyJavaOverride, err)
+	}
+
+	if !exists {
+		order = append(order, keyJavaOverride)
+	}
+	values[keyJavaOverride] = encoded
+
+	return order, values, nil
 }

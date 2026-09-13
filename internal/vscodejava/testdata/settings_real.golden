@@ -8,12 +8,14 @@
     "java.jdt.ls.java.home": "JAVA_HOME_PLACEHOLDER",
     "java.eclipse.downloadSources": true,
     "java.configuration.updateBuildConfiguration": "automatic",
-    "java.format.onType.enabled": false,
     "java.configuration.runtimes": [
         {
             "name": "JavaSE-21",
             "path": "JAVA_HOME_PLACEHOLDER",
             "default": true
         }
-    ]
+    ],
+    "[java]": {
+        "editor.formatOnSave": false
+    }
 }
