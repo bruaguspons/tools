@@ -68,6 +68,7 @@ func TestConfigure(t *testing.T) {
 			want: `{
     "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
     "java.configuration.updateBuildConfiguration": "automatic",
+    "java.format.onType.enabled": false,
     "java.configuration.runtimes": [
         {
             "name": "JavaSE-21",
@@ -94,6 +95,7 @@ func TestConfigure(t *testing.T) {
     },
     "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
     "java.configuration.updateBuildConfiguration": "automatic",
+    "java.format.onType.enabled": false,
     "java.configuration.runtimes": [
         {
             "name": "JavaSE-21",
@@ -115,6 +117,7 @@ func TestConfigure(t *testing.T) {
     "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
     "editor.tabSize": 4,
     "java.configuration.updateBuildConfiguration": "automatic",
+    "java.format.onType.enabled": false,
     "java.configuration.runtimes": [
         {
             "name": "JavaSE-21",
@@ -131,6 +134,7 @@ func TestConfigure(t *testing.T) {
 			want: `{
     "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
     "java.configuration.updateBuildConfiguration": "automatic",
+    "java.format.onType.enabled": false,
     "java.configuration.runtimes": [
         {
             "name": "JavaSE-21",
@@ -147,6 +151,7 @@ func TestConfigure(t *testing.T) {
 			want: `{
     "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
     "java.configuration.updateBuildConfiguration": "automatic",
+    "java.format.onType.enabled": false,
     "java.configuration.runtimes": [
         {
             "name": "JavaSE-21",
@@ -203,6 +208,7 @@ func TestConfigure(t *testing.T) {
   "editor.tabSize": 2,
   "java.jdt.ls.java.home": "` + "JAVA_HOME_PLACEHOLDER" + `",
   "java.configuration.updateBuildConfiguration": "automatic",
+  "java.format.onType.enabled": false,
   "java.configuration.runtimes": [
     {
       "name": "JavaSE-21",

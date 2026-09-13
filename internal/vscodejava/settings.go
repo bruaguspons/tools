@@ -1,6 +1,7 @@
 // Package vscodejava configures the VS Code Java extension's run/debug
 // settings for the current project by merging a small, fixed set of owned
-// keys into ./.vscode/settings.json.
+// keys into ./.vscode/settings.json, including disabling on-type (auto
+// indent) formatting.
 package vscodejava
 
 import (
@@ -23,17 +24,18 @@ type Result struct {
 	Changed bool
 }
 
-// Owned keys: the tool is authoritative for two scalar settings
-// (keyJavaHome, keyUpdateBuildConfig), which are overwritten outright,
-// plus keyRuntimes, which is merged instead — only the array element
-// matching the detected JDK's name is updated (or a new one appended),
-// and any other element's "default" is cleared so at most one runtime
-// stays default, per the extension's schema. Every other key in
-// settings.json is preserved untouched.
+// Owned keys: the tool is authoritative for three scalar settings
+// (keyJavaHome, keyUpdateBuildConfig, keyFormatOnType), which are
+// overwritten outright, plus keyRuntimes, which is merged instead — only
+// the array element matching the detected JDK's name is updated (or a new
+// one appended), and any other element's "default" is cleared so at most
+// one runtime stays default, per the extension's schema. Every other key
+// in settings.json is preserved untouched.
 const (
 	keyJavaHome             = "java.jdt.ls.java.home"
 	keyUpdateBuildConfig    = "java.configuration.updateBuildConfiguration"
 	valueUpdateBuildConfig  = "automatic"
+	keyFormatOnType         = "java.format.onType.enabled"
 	keyRuntimes             = "java.configuration.runtimes"
 	defaultIndent           = "    " // 4 spaces, VS Code's own default
 	settingsRelPath         = ".vscode/settings.json"
@@ -156,9 +158,9 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	return nil
 }
 
-// setOwnedKeys sets (or overwrites in place) the tool's two owned keys.
-// A key that already exists keeps its position in order; a new key is
-// appended at the end.
+// setOwnedKeys sets (or overwrites in place) the tool's three scalar
+// owned keys. A key that already exists keeps its position in order; a
+// new key is appended at the end.
 func setOwnedKeys(order []string, values map[string]json.RawMessage, javaHome string) ([]string, map[string]json.RawMessage) {
 	setKey := func(key string, value any) {
 		raw, _ := json.Marshal(value)
@@ -170,6 +172,7 @@ func setOwnedKeys(order []string, values map[string]json.RawMessage, javaHome st
 
 	setKey(keyJavaHome, javaHome)
 	setKey(keyUpdateBuildConfig, valueUpdateBuildConfig)
+	setKey(keyFormatOnType, false)
 
 	return order, values
 }
