@@ -13,16 +13,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/bruaguspons/tools/internal/jdk"
+	"github.com/bruaguspons/tools/internal/vscodesettings"
 )
 
 // Result reports the outcome of a Configure call.
-type Result struct {
-	// Path is the absolute path to the settings.json file that was read
-	// (and possibly written).
-	Path string
-	// Changed is true if settings.json was created or its content changed.
-	Changed bool
-}
+type Result = vscodesettings.Result
 
 // Owned keys: the tool is authoritative for two scalar settings
 // (keyJavaHome, keyUpdateBuildConfig), which are overwritten outright,
@@ -34,16 +31,12 @@ type Result struct {
 // "[java]" language-override object is preserved). Every other key in
 // settings.json is preserved untouched.
 const (
-	keyJavaHome             = "java.jdt.ls.java.home"
-	keyUpdateBuildConfig    = "java.configuration.updateBuildConfiguration"
-	valueUpdateBuildConfig  = "automatic"
-	keyRuntimes             = "java.configuration.runtimes"
-	keyJavaOverride         = "[java]"
-	editorFormatOnSave      = "editor.formatOnSave"
-	defaultIndent           = "    " // 4 spaces, VS Code's own default
-	settingsRelPath         = ".vscode/settings.json"
-	settingsDirPermissions  = 0o755
-	settingsFilePermissions = 0o644
+	keyJavaHome            = "java.jdt.ls.java.home"
+	keyUpdateBuildConfig   = "java.configuration.updateBuildConfiguration"
+	valueUpdateBuildConfig = "automatic"
+	keyRuntimes            = "java.configuration.runtimes"
+	keyJavaOverride        = "[java]"
+	editorFormatOnSave     = "editor.formatOnSave"
 )
 
 // Configure resolves the JDK from $JAVA_HOME, merges the owned Java keys
@@ -62,57 +55,16 @@ func Configure(dir string) (Result, error) {
 		return Result{}, err
 	}
 
-	path := filepath.Join(dir, settingsRelPath)
+	return vscodesettings.Merge(dir, func(order []string, values map[string]json.RawMessage) ([]string, map[string]json.RawMessage, error) {
+		order, values = setOwnedKeys(order, values, javaHome)
 
-	existing, err := os.ReadFile(path)
-	fileExists := true
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return Result{}, fmt.Errorf("read %s: %w", path, err)
+		order, values, err := setRuntimesKey(order, values, runtime, javaHome)
+		if err != nil {
+			return nil, nil, err
 		}
-		fileExists = false
-		existing = nil
-	}
 
-	order, values, err := decodeSettings(existing)
-	if err != nil {
-		return Result{}, fmt.Errorf("parse %s: %w", path, err)
-	}
-
-	order, values = setOwnedKeys(order, values, javaHome)
-
-	order, values, err = setRuntimesKey(order, values, runtime, javaHome)
-	if err != nil {
-		return Result{}, fmt.Errorf("parse %s: %w", path, err)
-	}
-
-	order, values, err = setJavaOverrideKey(order, values)
-	if err != nil {
-		return Result{}, fmt.Errorf("parse %s: %w", path, err)
-	}
-
-	indentUnit := detectIndent(existing)
-	rendered, err := render(order, values, indentUnit)
-	if err != nil {
-		return Result{}, fmt.Errorf("render %s: %w", path, err)
-	}
-
-	if fileExists && bytes.Equal(rendered, existing) {
-		return Result{Path: path, Changed: false}, nil
-	}
-
-	mode := os.FileMode(settingsFilePermissions)
-	if fileExists {
-		if info, statErr := os.Stat(path); statErr == nil {
-			mode = info.Mode()
-		}
-	}
-
-	if err := writeAtomic(path, rendered, mode); err != nil {
-		return Result{}, err
-	}
-
-	return Result{Path: path, Changed: true}, nil
+		return setJavaOverrideKey(order, values)
+	})
 }
 
 // validateJavaHome resolves $JAVA_HOME and checks it looks like a JDK
@@ -131,39 +83,6 @@ func validateJavaHome() (string, error) {
 	}
 
 	return home, nil
-}
-
-// writeAtomic writes data to path by staging a temp file in the same
-// directory and renaming it into place, so readers never observe a
-// partially-written file.
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, settingsDirPermissions); err != nil {
-		return fmt.Errorf("create %s: %w", dir, err)
-	}
-
-	tmp, err := os.CreateTemp(dir, "settings-*.json.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp file in %s: %w", dir, err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath) // no-op once the rename below succeeds
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write %s: %w", tmpPath, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close %s: %w", tmpPath, err)
-	}
-	if err := os.Chmod(tmpPath, mode); err != nil {
-		return fmt.Errorf("chmod %s: %w", tmpPath, err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("rename %s to %s: %w", tmpPath, path, err)
-	}
-
-	return nil
 }
 
 // setOwnedKeys sets (or overwrites in place) the tool's two scalar owned
@@ -198,7 +117,7 @@ func runtimeName(javaHome string) (string, error) {
 		return "", fmt.Errorf("read %s: %w", releasePath, err)
 	}
 
-	version, err := parseJavaVersion(data)
+	version, err := jdk.ParseJavaVersion(data)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", releasePath, err)
 	}
@@ -209,23 +128,6 @@ func runtimeName(javaHome string) (string, error) {
 	}
 
 	return name, nil
-}
-
-// parseJavaVersion extracts the JAVA_VERSION value from a JDK's release
-// file (lines of the form KEY="VALUE").
-func parseJavaVersion(data []byte) (string, error) {
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "JAVA_VERSION=") {
-			continue
-		}
-		value := strings.Trim(strings.TrimPrefix(line, "JAVA_VERSION="), `"`)
-		if value == "" {
-			return "", errors.New("JAVA_VERSION is empty")
-		}
-		return value, nil
-	}
-	return "", errors.New("no JAVA_VERSION line found")
 }
 
 // javaSEName maps a JAVA_VERSION string to the JavaSE-* name the
@@ -265,7 +167,7 @@ func setRuntimesKey(order []string, values map[string]json.RawMessage, name, jav
 	var elements []json.RawMessage
 	if exists {
 		var err error
-		elements, err = decodeOrderedArray(raw)
+		elements, err = vscodesettings.DecodeOrderedArray(raw)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", keyRuntimes, err)
 		}
@@ -303,7 +205,7 @@ func mergeRuntimes(elements []json.RawMessage, name, javaHome string) ([]json.Ra
 	result := make([]json.RawMessage, len(elements))
 
 	for i, elem := range elements {
-		order, fields, err := decodeOrderedObject(elem, bytes.TrimSpace(elem))
+		order, fields, err := vscodesettings.DecodeOrderedObject(elem, bytes.TrimSpace(elem))
 		if err != nil {
 			return nil, fmt.Errorf("element %d: %w", i, err)
 		}
@@ -320,13 +222,13 @@ func mergeRuntimes(elements []json.RawMessage, name, javaHome string) ([]json.Ra
 		switch {
 		case elemName == name:
 			found = true
-			setField(&order, fields, "path", pathRaw)
-			setField(&order, fields, "default", trueRaw)
+			vscodesettings.SetField(&order, fields, "path", pathRaw)
+			vscodesettings.SetField(&order, fields, "default", trueRaw)
 		case fields["default"] != nil:
 			fields["default"] = falseRaw
 		}
 
-		encoded, err := encodeOrderedObject(order, fields)
+		encoded, err := vscodesettings.EncodeOrderedObject(order, fields)
 		if err != nil {
 			return nil, fmt.Errorf("element %d: %w", i, err)
 		}
@@ -341,7 +243,7 @@ func mergeRuntimes(elements []json.RawMessage, name, javaHome string) ([]json.Ra
 			"path":    pathRaw,
 			"default": trueRaw,
 		}
-		encoded, err := encodeOrderedObject(newOrder, newFields)
+		encoded, err := vscodesettings.EncodeOrderedObject(newOrder, newFields)
 		if err != nil {
 			return nil, err
 		}
@@ -349,15 +251,6 @@ func mergeRuntimes(elements []json.RawMessage, name, javaHome string) ([]json.Ra
 	}
 
 	return result, nil
-}
-
-// setField sets a field on an ordered object, appending it to order only
-// if it wasn't already present (so an existing field keeps its position).
-func setField(order *[]string, fields map[string]json.RawMessage, key string, value json.RawMessage) {
-	if _, exists := fields[key]; !exists {
-		*order = append(*order, key)
-	}
-	fields[key] = value
 }
 
 // setJavaOverrideKey merges editorFormatOnSave: false into the "[java]"
@@ -371,16 +264,16 @@ func setJavaOverrideKey(order []string, values map[string]json.RawMessage) ([]st
 	fields := make(map[string]json.RawMessage)
 	if exists {
 		var err error
-		fieldOrder, fields, err = decodeOrderedObject(raw, bytes.TrimSpace(raw))
+		fieldOrder, fields, err = vscodesettings.DecodeOrderedObject(raw, bytes.TrimSpace(raw))
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", keyJavaOverride, err)
 		}
 	}
 
 	falseRaw, _ := json.Marshal(false)
-	setField(&fieldOrder, fields, editorFormatOnSave, falseRaw)
+	vscodesettings.SetField(&fieldOrder, fields, editorFormatOnSave, falseRaw)
 
-	encoded, err := encodeOrderedObject(fieldOrder, fields)
+	encoded, err := vscodesettings.EncodeOrderedObject(fieldOrder, fields)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal %s: %w", keyJavaOverride, err)
 	}

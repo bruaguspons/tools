@@ -1,4 +1,4 @@
-package vscodejava
+package vscodesettings
 
 import (
 	"bytes"
@@ -14,14 +14,14 @@ func decodeSettings(data []byte) ([]string, map[string]json.RawMessage, error) {
 	if len(trimmed) == 0 {
 		return []string{}, map[string]json.RawMessage{}, nil
 	}
-	return decodeOrderedObject(data, trimmed)
+	return DecodeOrderedObject(data, trimmed)
 }
 
-// decodeOrderedObject strictly decodes a JSON object, recording the
+// DecodeOrderedObject strictly decodes a JSON object, recording the
 // original top-level key order alongside each key's raw (unparsed) value.
 // It rejects anything that isn't a top-level object, including any
 // trailing content after the closing brace.
-func decodeOrderedObject(original, trimmed []byte) ([]string, map[string]json.RawMessage, error) {
+func DecodeOrderedObject(original, trimmed []byte) ([]string, map[string]json.RawMessage, error) {
 	dec := json.NewDecoder(bytes.NewReader(trimmed))
 
 	tok, err := dec.Token()
@@ -67,11 +67,11 @@ func decodeOrderedObject(original, trimmed []byte) ([]string, map[string]json.Ra
 	return order, values, nil
 }
 
-// decodeOrderedArray strictly decodes a JSON array, returning its
+// DecodeOrderedArray strictly decodes a JSON array, returning its
 // elements as raw (unparsed) values in their original order. It rejects
 // anything that isn't a top-level array, including any trailing content
 // after the closing bracket.
-func decodeOrderedArray(raw []byte) ([]json.RawMessage, error) {
+func DecodeOrderedArray(raw []byte) ([]json.RawMessage, error) {
 	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(raw)))
 
 	tok, err := dec.Token()
@@ -102,12 +102,12 @@ func decodeOrderedArray(raw []byte) ([]json.RawMessage, error) {
 	return elements, nil
 }
 
-// encodeOrderedObject is the inverse of decodeOrderedObject: it renders
+// EncodeOrderedObject is the inverse of DecodeOrderedObject: it renders
 // values in the given key order as a single compact JSON object. Nested
 // values are emitted as-is (whatever bytes are already stored for that
 // key) — render() re-indents the whole file afterward, so compact output
 // here is sufficient.
-func encodeOrderedObject(order []string, values map[string]json.RawMessage) (json.RawMessage, error) {
+func EncodeOrderedObject(order []string, values map[string]json.RawMessage) (json.RawMessage, error) {
 	var buf bytes.Buffer
 	buf.WriteByte('{')
 	for i, key := range order {
@@ -196,13 +196,14 @@ func isJSONSpace(b byte) bool {
 }
 
 // detectIndent inspects existing settings.json content for the
-// indentation used on its first indented line, defaulting to 4 spaces
+// indentation (spaces or tabs) used on its first indented line,
+// defaulting to 4 spaces
 // (VS Code's own default) when none can be detected (absent, blank, or
 // single-line "{}" file).
 func detectIndent(data []byte) string {
 	lines := bytes.Split(data, []byte("\n"))
 	for _, line := range lines {
-		trimmed := bytes.TrimLeft(line, " ")
+		trimmed := bytes.TrimLeft(line, " \t")
 		n := len(line) - len(trimmed)
 		if n > 0 && len(trimmed) > 0 && trimmed[0] == '"' {
 			return string(line[:n])
