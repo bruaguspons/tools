@@ -9,6 +9,8 @@ import (
 	"sort"
 
 	"github.com/bruaguspons/tools/internal/vscodejava"
+	"github.com/bruaguspons/tools/internal/vscodekotlin"
+	"github.com/bruaguspons/tools/internal/vscodesettings"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -23,34 +25,43 @@ type command struct {
 var commands = map[string]command{
 	"vscode-java": {
 		summary: "merge Java run/debug settings into ./.vscode/settings.json",
-		run:     runVscodeJava,
+		run:     noArgSettingsCommand("vscode-java", vscodejava.Configure),
+	},
+	"vscode-kotlin": {
+		summary: "set kotlin.java.home in ./.vscode/settings.json to the newest supported JDK",
+		run:     noArgSettingsCommand("vscode-kotlin", vscodekotlin.Configure),
 	},
 }
 
-func runVscodeJava(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 {
-		fmt.Fprintf(stderr, "tools: vscode-java takes no arguments (got %v)\n", args)
-		return 2
-	}
+// noArgSettingsCommand builds the handler for a subcommand that takes no
+// arguments and merges settings into ./.vscode/settings.json in the
+// current directory via configure.
+func noArgSettingsCommand(name string, configure func(dir string) (vscodesettings.Result, error)) func(args []string, stdout, stderr io.Writer) int {
+	return func(args []string, stdout, stderr io.Writer) int {
+		if len(args) > 0 {
+			fmt.Fprintf(stderr, "tools: %s takes no arguments (got %v)\n", name, args)
+			return 2
+		}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintf(stderr, "tools: %v\n", err)
-		return 1
-	}
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(stderr, "tools: %v\n", err)
+			return 1
+		}
 
-	result, err := vscodejava.Configure(cwd)
-	if err != nil {
-		fmt.Fprintf(stderr, "tools: %v\n", err)
-		return 1
-	}
+		result, err := configure(cwd)
+		if err != nil {
+			fmt.Fprintf(stderr, "tools: %v\n", err)
+			return 1
+		}
 
-	if result.Changed {
-		fmt.Fprintf(stdout, "tools: updated %s\n", result.Path)
-	} else {
-		fmt.Fprintf(stdout, "tools: %s already up to date\n", result.Path)
+		if result.Changed {
+			fmt.Fprintf(stdout, "tools: updated %s\n", result.Path)
+		} else {
+			fmt.Fprintf(stdout, "tools: %s already up to date\n", result.Path)
+		}
+		return 0
 	}
-	return 0
 }
 
 func printUsage(w io.Writer) {

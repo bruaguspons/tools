@@ -66,6 +66,43 @@ Merges the VS Code Java extension's run/debug settings into
   byte-identical to what's already on disk — running the command twice
   with the same `JAVA_HOME` is a no-op the second time.
 
+### `vscode-kotlin`
+
+```bash
+tools vscode-kotlin
+```
+
+Points the VS Code Kotlin extension (`fwcd.kotlin`) at a JDK it can run
+on by setting `kotlin.java.home` in `./.vscode/settings.json` in the
+current directory:
+
+- Scans the direct children of `/usr/lib/jvm` for JDKs (a directory with
+  `bin/java` and a `release` file with a parseable `JAVA_VERSION`) and
+  picks the highest version. `$JAVA_HOME` is **not** consulted: unlike
+  `vscode-java`, this command discovers the JDK itself.
+- Symlinks are resolved and deduplicated, and the resolved path is what
+  gets written (for example `/usr/lib/jvm/java-21-openjdk-amd64`, not
+  `default-java`).
+- Only JDKs with a major version in the range [11, 24] are considered:
+  `fwcd.kotlin` 0.2.36 requires JDK 11 or newer, and its bundled
+  kotlin-compiler 2.1.0 rejects JDK 25 and later. If no JDK in that range
+  is installed, the command fails, lists the versions it saw, and names
+  any JDK-looking directory it skipped along with the reason.
+- Sets exactly one owned key, `kotlin.java.home`, and preserves every
+  other key and the original key order. As with `vscode-java`,
+  `settings.json` must be **strict JSON** (no comments or trailing
+  commas); the write is atomic and skipped when nothing changes.
+
+Both commands share the same `settings.json` handling:
+
+- If `.vscode/settings.json` is a symlink, the link's target is updated
+  and the link is left intact. A dangling symlink is an error and nothing
+  is written.
+- Tab or space indentation is detected from the existing file and
+  preserved (4 spaces when it can't be detected).
+- Errors are labelled `parse <path>` for invalid JSON and `update <path>`
+  when applying the owned-key changes fails.
+
 ## Contributing
 
 ```bash
